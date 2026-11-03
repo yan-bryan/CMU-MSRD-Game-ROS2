@@ -1,0 +1,12 @@
+float64 x
+float64 y
+float64 turret_angle
+float64 turret_speed
+float64 min_angle
+float64 max_angle
+float64 min_force
+float64 max_force
+float64 firing_speed
+float64 firing_chance
+float64 firing_delay
+float64 firing_randomness
