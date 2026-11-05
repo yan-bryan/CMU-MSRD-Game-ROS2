@@ -28,7 +28,7 @@ class GameAiNode : public rclcpp::Node {
                     }
 
                     std::fill(this->danger_.begin(), this->danger_.end(), 0);
-                    std::fill(this->reached_.begin(), this->reached_.end(), 0);
+                    std::fill(this->reached_.begin(), this->reached_.end(), false);
                     std::fill(this->first_move_.begin(), this->first_move_.end(), 0);
 
                     for(size_t i = 0 ; i < msg->explosions.size() ; i++){
@@ -78,6 +78,14 @@ class GameAiNode : public rclcpp::Node {
                     int start = round(msg->players[0].x);
                     this->reached_[0 * (this->width_ + 1) + start] = true;
                     
+                    for(int ticks = 0 ; ticks < this->horizon_ - 2 ; ticks++){
+                        for(int cells = 0 ; cells < this->width_ ; cells++ ){
+                            if( !reached_[ticks * (this->width_+1) + cells] ) {
+                                continue;
+                            }
+                        }
+
+                    }
                 }
             );
         }
