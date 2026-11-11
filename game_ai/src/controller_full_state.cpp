@@ -2,6 +2,7 @@
 #include "sensor_msgs/msg/joy.hpp"
 #include "game_interfaces/msg/game_state.hpp"
 #include <cmath>
+#include <algorithm>
 
 struct Prediction {
     int tick; 
@@ -76,12 +77,25 @@ class GameAiNode : public rclcpp::Node {
 
                     //begin decision logic
                     int start = round(msg->players[0].x);
-                    this->reached_[0 * (this->width_ + 1) + start] = true;
+                    this->reached_[0 * (this->width_ + 1) + start] = true; // mark current position as reached
                     
-                    for(int ticks = 0 ; ticks < this->horizon_ - 2 ; ticks++){
-                        for(int cells = 0 ; cells < this->width_ ; cells++ ){
-                            if( !reached_[ticks * (this->width_+1) + cells] ) {
+                    for(int ticks = 0 ; ticks < this->horizon_ - 1 ; ticks++){
+                        for(int cells = 0 ; cells <= this->width_ ; cells++ ){
+                            if(!reached_[ticks * (this->width_+1) + cells]) {
                                 continue;
+                            }
+
+                            for(int moves : {0, -1, 1}) {//Checks neighbors of curr_pos
+                                int clamp_move = std::clamp(cells + moves, 0, this->width_);//makes sure we're within bounds
+                                if(!isSafe(ticks + 1, clamp_move) ){
+                                    continue;
+                                }
+                                if(this->reached_[(ticks + 1) * (this->width_ + 1) + clamp_move]){ //this path has already been checked 
+                                    continue;
+                                }
+                                this->reached_[(ticks + 1) * (this->width_ + 1) + clamp_move] = true;
+                                this->first_move_[(ticks + 1) * (this->width_ + 1) + clamp_move] = 
+                                    (ticks == 0) ? moves : this->first_move_[(ticks) * (this->width_ + 1) + cells];
                             }
                         }
 
@@ -96,7 +110,7 @@ class GameAiNode : public rclcpp::Node {
                 return true;
             }
 
-            auto px_clamp = std::min( static_cast<double>(this->width_), std::max(0.0, px) );
+            auto px_clamp = std::clamp(px, 0.0, static_cast<double>(this->width_) );
             return !(cellAt(t, static_cast<int>(std::floor(px_clamp)) ) > 0 && cellAt(t, static_cast<int>(std::ceil(px_clamp)) ) > 0 );
 
             // return true;
