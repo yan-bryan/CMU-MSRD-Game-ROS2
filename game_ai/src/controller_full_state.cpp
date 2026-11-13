@@ -15,6 +15,8 @@ class GameAiNode : public rclcpp::Node {
         using GameState = game_interfaces::msg::GameState;
         
         explicit GameAiNode(const rclcpp::NodeOptions &options = rclcpp::NodeOptions() ) : Node("controller_full_state", options) {
+            publisher_ = create_publisher<sensor_msgs::msg::Joy>("joy",10);
+
             subscriber_ = create_subscription<game_interfaces::msg::GameState>("game_state",10,
                 [this](const GameState::ConstSharedPtr msg) {
                     int temp_width = static_cast<int>(std::lround(msg->w) );
@@ -80,7 +82,8 @@ class GameAiNode : public rclcpp::Node {
                     //test isSafe
 
                     //begin decision logic
-                    int start = round(msg->players[0].x);
+                    
+                    int start = round(msg->players[0].x);// needs guard
                     reached_[0 * (width_ + 1) + start] = true; // mark current position as reached
                     
                     for(int ticks = 0 ; ticks < horizon_ - 1 ; ticks++){
@@ -93,9 +96,10 @@ class GameAiNode : public rclcpp::Node {
                                 int clamp_move = std::clamp(cells + moves, 0, width_);//makes sure we're within bounds
                                 const int next = getIndex(ticks+1, clamp_move);
 
-                                if(reached_[next]){ //this path has already been checked 
+                                if(reached_[next]){ //this path has already been reached 
                                     continue;
                                 }
+
                                 if(cellAt(ticks + 1, clamp_move != 0) ){
                                     continue;
                                 }
@@ -107,6 +111,9 @@ class GameAiNode : public rclcpp::Node {
                         }
 
                     }
+
+                    //publish to joy
+                    //go from bottom up and prefer moves that start with 0;
                 }
             );
         }
