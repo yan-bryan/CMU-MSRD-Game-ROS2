@@ -13,9 +13,10 @@ struct Prediction {
 class GameAiNode : public rclcpp::Node {
     public:
         using GameState = game_interfaces::msg::GameState;
+        using Joy = sensor_msgs::msg::Joy;
         
         explicit GameAiNode(const rclcpp::NodeOptions &options = rclcpp::NodeOptions() ) : Node("controller_full_state", options) {
-            publisher_ = create_publisher<sensor_msgs::msg::Joy>("joy",10);
+            publisher_ = create_publisher<Joy>("joy",10);
 
             subscriber_ = create_subscription<game_interfaces::msg::GameState>("game_state",10,
                 [this](const GameState::ConstSharedPtr msg) {
@@ -81,39 +82,72 @@ class GameAiNode : public rclcpp::Node {
 
                     //test isSafe
 
-                    //begin decision logic
-                    
-                    int start = round(msg->players[0].x);// needs guard
-                    reached_[0 * (width_ + 1) + start] = true; // mark current position as reached
-                    
-                    for(int ticks = 0 ; ticks < horizon_ - 1 ; ticks++){
-                        for(int cells = 0 ; cells <= width_ ; cells++ ){
-                            if(!reached_[getIndex(ticks, cells)]) {
-                                continue;
+                    //begin decision logic 
+                    if(msg->players.size()) {
+                   
+                        int start = round(msg->players[0].x);
+                        reached_[0 * (width_ + 1) + start] = 1; // mark current position as reached
+                        
+                        for(int ticks = 0 ; ticks < horizon_ - 1 ; ticks++){
+                            for(int cells = 0 ; cells <= width_ ; cells++ ){
+                                if(!reached_[getIndex(ticks, cells)]) {
+                                    continue;
+                                }
+
+                                for(int moves : {0, -1, 1}) {//Checks neighbors of curr_pos
+                                    int clamp_move = std::clamp(cells + moves, 0, width_);//makes sure we're within bounds
+                                    const int next = getIndex(ticks+1, clamp_move);
+
+                                    if(reached_[next]){ //this path has already been reached 
+                                        continue;
+                                    }
+
+                                    if(cellAt(ticks + 1, clamp_move != 0) ){
+                                        continue;
+                                    }
+                                    
+                                    reached_[next] = 1;
+                                    first_move_[next] = 
+                                        (ticks == 0) ? moves : first_move_[getIndex(ticks, cells)];
+                                }
                             }
 
-                            for(int moves : {0, -1, 1}) {//Checks neighbors of curr_pos
-                                int clamp_move = std::clamp(cells + moves, 0, width_);//makes sure we're within bounds
-                                const int next = getIndex(ticks+1, clamp_move);
+                        }
 
-                                if(reached_[next]){ //this path has already been reached 
+                        //publish to joy
+                        //go from bottom up and prefer moves that start with 0;
+                        for(size_t ticks = horizon_ - 1 ; ticks > 0 ; ticks-- ) {
+                            uint8_t pref_move = 2; // 2 means nothing is found yet
+
+                            for(size_t cells = 0 ; cells <= width_ ; cells++ ) {
+                                if(!reached_[getIndex(ticks, cells)]){
                                     continue;
                                 }
 
-                                if(cellAt(ticks + 1, clamp_move != 0) ){
-                                    continue;
+                                if(first_move_[getIndex(ticks,cells)] == 0 ){
+                                    auto joy_msg = Joy();
+                                    joy_msg.header.stamp = this->now();
+                                    joy_msg.axes.push_back(static_cast<float>(0));
+                                    publisher_->publish(joy_msg);
+
+                                    break;
+                                } else {
+                                    pref_move = first_move_[getIndex(ticks,cells)] ;
                                 }
-                                
-                                reached_[next] = true;
-                                first_move_[next] = 
-                                    (ticks == 0) ? moves : first_move_[getIndex(ticks, cells)];
+
+                            }
+
+                            if(pref_move != 2) {
+                                auto joy_msg = Joy();
+                                joy_msg.header.stamp = this->now();
+                                joy_msg.axes.push_back(static_cast<float>(pref_move) );
+                                publisher_->publish(joy_msg);
                             }
                         }
 
+
                     }
 
-                    //publish to joy
-                    //go from bottom up and prefer moves that start with 0;
                 }
             );
         }
