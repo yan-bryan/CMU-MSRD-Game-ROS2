@@ -35,7 +35,7 @@ class GameAiNode : public rclcpp::Node {
                     }
 
                     std::fill(danger_.begin(), danger_.end(), 0);
-                    std::fill(reached_.begin(), reached_.end(), false);
+                    std::fill(reached_.begin(), reached_.end(), 0);
                     std::fill(first_move_.begin(), first_move_.end(), 0);
 
                     for(size_t i = 0 ; i < msg->explosions.size() ; i++){
@@ -45,7 +45,7 @@ class GameAiNode : public rclcpp::Node {
                         int cell_end = static_cast<int>(ceil(explosion_x + msg->explosion_size) );
 
                         const double age = msg->explosions[i].time;
-                        int tick_end = static_cast<int>(floor((msg->explosion_time - age) / msg->time_step + 1e-6 ) );
+                        int tick_end = static_cast<int>(std::floor((msg->explosion_time - age) / msg->time_step + 1e-4 ) );
 
                         markDangerous(0, tick_end, cell_start, cell_end);
                     }
@@ -83,76 +83,91 @@ class GameAiNode : public rclcpp::Node {
                     //test isSafe
 
                     //begin decision logic 
-                    if(msg->players.size()) {
+                    if(msg->players.empty() || msg->players[0].dead) {
+                        publishMove(0);
+                        return;
+                    }
+
+
                    
-                        int start = round(msg->players[0].x);
-                        reached_[0 * (width_ + 1) + start] = 1; // mark current position as reached
-                        
-                        for(int ticks = 0 ; ticks < horizon_ - 1 ; ticks++){
-                            for(int cells = 0 ; cells <= width_ ; cells++ ){
-                                if(!reached_[getIndex(ticks, cells)]) {
+                    int start = std::clamp( static_cast<int>( std::lround( msg->players[0].x ) ), 0, width_) ;
+                    reached_[ getIndex(0, start) ] = 1; // mark current position as reached
+                    
+                    for(int ticks = 0 ; ticks < horizon_ - 1 ; ticks++){
+                        for(int cells = 0 ; cells <= width_ ; cells++ ){
+                            if(!reached_[getIndex(ticks, cells)]) {
+                                continue;
+                            }
+
+                            for(int moves : {0, -1, 1}) {//Checks neighbors of curr_pos
+                                int clamp_move = std::clamp(cells + moves, 0, width_);//makes sure we're within bounds
+                                const size_t next = getIndex(ticks+1, clamp_move);
+
+                                if(reached_[next]){ //this path has already been reached 
                                     continue;
                                 }
 
-                                for(int moves : {0, -1, 1}) {//Checks neighbors of curr_pos
-                                    int clamp_move = std::clamp(cells + moves, 0, width_);//makes sure we're within bounds
-                                    const int next = getIndex(ticks+1, clamp_move);
-
-                                    if(reached_[next]){ //this path has already been reached 
-                                        continue;
-                                    }
-
-                                    if(cellAt(ticks + 1, clamp_move != 0) ){
-                                        continue;
-                                    }
-                                    
-                                    reached_[next] = 1;
-                                    first_move_[next] = 
-                                        (ticks == 0) ? moves : first_move_[getIndex(ticks, cells)];
-                                }
-                            }
-
-                        }
-
-                        //publish to joy
-                        //go from bottom up and prefer moves that start with 0;
-                        for(size_t ticks = horizon_ - 1 ; ticks > 0 ; ticks-- ) {
-                            uint8_t pref_move = 2; // 2 means nothing is found yet
-
-                            for(size_t cells = 0 ; cells <= width_ ; cells++ ) {
-                                if(!reached_[getIndex(ticks, cells)]){
+                                if( cellAt(ticks + 1, clamp_move) != 0 ){
                                     continue;
                                 }
-
-                                if(first_move_[getIndex(ticks,cells)] == 0 ){
-                                    auto joy_msg = Joy();
-                                    joy_msg.header.stamp = this->now();
-                                    joy_msg.axes.push_back(static_cast<float>(0));
-                                    publisher_->publish(joy_msg);
-
-                                    break;
-                                } else {
-                                    pref_move = first_move_[getIndex(ticks,cells)] ;
-                                }
-
-                            }
-
-                            if(pref_move != 2) {
-                                auto joy_msg = Joy();
-                                joy_msg.header.stamp = this->now();
-                                joy_msg.axes.push_back(static_cast<float>(pref_move) );
-                                publisher_->publish(joy_msg);
+                                
+                                reached_[next] = 1;
+                                first_move_[next] = 
+                                    (ticks == 0) ? moves : first_move_[getIndex(ticks, cells)];
                             }
                         }
-
 
                     }
+
+
+                    //publish to joy
+                    //go from bottom up and prefer moves that start with 0;
+                    publishMove(decideMove());
+
+
 
                 }
             );
         }
 
     private:
+        void publishMove(int move) {
+            auto joy_msg = Joy();
+            joy_msg.header.stamp = this->now();
+            joy_msg.axes.push_back(static_cast<float>(move));
+            publisher_->publish(joy_msg);
+        }
+
+        int decideMove() const{
+            for (int ticks = horizon_ - 1; ticks > 0; ticks--){
+                int pref_move = 2; // 2 means nothing has been found
+
+                for (int cells = 0; cells <= width_; cells++)
+                {
+                    const size_t index = getIndex(ticks, cells);
+
+                    if (!reached_[index])
+                    {
+                        continue;
+                    }
+
+                    if (first_move_[index] == 0)
+                    { 
+                        return 0;
+                    }
+
+                    pref_move = first_move_[index];
+
+                }
+
+                if (pref_move != 2)
+                {
+                    return pref_move;
+                }
+            }
+            return 0;
+        }
+
         bool isSafe(int t, double px) const{
             if(t >= horizon_){
                 return true;
@@ -182,7 +197,7 @@ class GameAiNode : public rclcpp::Node {
         }
 
         size_t getIndex(int tick, int cell) const{
-            return static_cast<size_t>(tick * (width_+1) + cell );
+            return static_cast<size_t>(tick) * (width_+1) + cell;
         }
 
         void markDangerous(int tick_start, int tick_end, int cell_start, int cell_end ){
