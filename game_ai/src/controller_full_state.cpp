@@ -45,7 +45,7 @@ class GameAiNode : public rclcpp::Node {
                         int cell_end = static_cast<int>(ceil(explosion_x + msg->explosion_size) );
 
                         const double age = msg->explosions[i].time;
-                        int tick_end = static_cast<int>(std::floor((msg->explosion_time - age) / msg->time_step + 1e-4 ) );
+                        int tick_end = static_cast<int>(std::floor((msg->explosion_time - age) / msg->time_step + 1e-4 ) + 1);
 
                         markDangerous(0, tick_end, cell_start, cell_end);
                     }
@@ -93,32 +93,60 @@ class GameAiNode : public rclcpp::Node {
                     int start = std::clamp( static_cast<int>( std::lround( msg->players[0].x ) ), 0, width_) ;
                     reached_[ getIndex(0, start) ] = 1; // mark current position as reached
                     
+                    // for(int ticks = 0 ; ticks < horizon_ - 1 ; ticks++){
+                    //     for(int cells = 0 ; cells <= width_ ; cells++ ){
+                    //         if(!reached_[getIndex(ticks, cells)]) {
+                    //             continue;
+                    //         }
+
+                    //         for(int moves : {0, -1, 1}) {//Checks neighbors of curr_pos
+                    //             int clamp_move = std::clamp(cells + moves, 0, width_);//makes sure we're within bounds
+                    //             const size_t next = getIndex(ticks+1, clamp_move);
+
+                    //             if(reached_[next]){ //this path has already been reached 
+                    //                 continue;
+                    //             }
+
+                    //             if( cellAt(ticks + 1, clamp_move) != 0 ){
+                    //                 continue;
+                    //             }
+                                
+                    //             reached_[next] = 1;
+                    //             first_move_[next] = 
+                    //                 (ticks == 0) ? moves : first_move_[getIndex(ticks, cells)];
+                    //         }
+                    //     }
+
+                    // }
+
                     for(int ticks = 0 ; ticks < horizon_ - 1 ; ticks++){
-                        for(int cells = 0 ; cells <= width_ ; cells++ ){
-                            if(!reached_[getIndex(ticks, cells)]) {
+                        for(int cells = 0 ; cells <= width_ ; cells++) {
+                            const size_t next_tick_index = getIndex(ticks + 1, cells);
+                            
+                            if(danger_[next_tick_index] != 0 ) {
                                 continue;
                             }
+                            
+                            for(int moves : {0, -1, 1} ) {
+                                int prev_cell = cells - moves;
 
-                            for(int moves : {0, -1, 1}) {//Checks neighbors of curr_pos
-                                int clamp_move = std::clamp(cells + moves, 0, width_);//makes sure we're within bounds
-                                const size_t next = getIndex(ticks+1, clamp_move);
-
-                                if(reached_[next]){ //this path has already been reached 
+                                if( prev_cell < 0 || prev_cell > width_) {
                                     continue;
                                 }
 
-                                if( cellAt(ticks + 1, clamp_move) != 0 ){
+                                const size_t prev_cell_index = getIndex(ticks, prev_cell);
+
+                                if(!reached_[prev_cell_index]) {
                                     continue;
                                 }
-                                
-                                reached_[next] = 1;
-                                first_move_[next] = 
-                                    (ticks == 0) ? moves : first_move_[getIndex(ticks, cells)];
+
+                                reached_[next_tick_index ] = 1;
+                                first_move_[next_tick_index] = (ticks == 0) ? moves : first_move_[prev_cell_index ];
+                                break;
+
                             }
                         }
-
                     }
-
 
                     //publish to joy
                     //go from bottom up and prefer moves that start with 0;
